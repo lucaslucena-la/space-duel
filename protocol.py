@@ -11,3 +11,7 @@ MSG_ASSIGN_ID = "assign_id"
 MSG_STATE = "state"
 MSG_DISCONNECT = "disconnect"
 MSG_ERROR = "error"
+
+#Eventos do jogo
+MSG_MOVE = "move"
+MSG_STATE = "state"

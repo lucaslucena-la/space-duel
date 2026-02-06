@@ -12,24 +12,60 @@ Responsável por:
 import socket
 import threading
 import json
-from protocol import MSG_ASSIGN_ID, MSG_DISCONNECT
+from protocol import MSG_ASSIGN_ID, MSG_DISCONNECT, MSG_STATE, MSG_MOVE
 
 # Configuração do Servidor
 
 HOST = "127.0.0.1"   # localhost
 PORT = 5000
 MAX_PLAYERS = 2
+MOVE_STEP = 2 #Pixels por movimento
+
+#estado global do jogo
+game_state = {
+    "players": {
+        1: {"x": 20, "y": 60},
+        2: {"x": 120, "y": 60}
+    }
+}
 
 # Estado do servidor
 clients = {}  # player_id -> socket
 lock = threading.Lock()
 
-def send_messahe(conn, messahe: dict):
+def send_message(conn, message: dict):
     """Envia uma mensagem JSON para o cliente pelo socket."""
     try:
-        conn.sendall(json.dumps(messahe).encode("utf-8"))
+        data = json.dumps(message) + "\n"
+        conn.sendall(data.encode("utf-8"))
     except Exception as e:
         print(f"[ERROR]: Falha ao enviar mensagem: {e}")
+
+def broadcast_state():
+    """Envia o estado atual do jogo para todos os clientes"""
+    message = {
+        "type": MSG_STATE,
+        "players": game_state["players"]
+    }
+
+    for conn in clients.values():
+        send_message(conn, message)
+
+def process_move(player_id, direction):
+    """Atualiza a posição do jogador com base na direção."""
+    player = game_state["players"].get(player_id)
+    if not player:
+        return
+
+    if direction == "up":
+        player["y"] -= MOVE_STEP
+    elif direction == "down":
+        player["y"] += MOVE_STEP
+    elif direction == "left":
+        player["x"] -= MOVE_STEP
+    elif direction == "right":
+        player["x"] += MOVE_STEP
+
 
 def handle_client(conn, addr, player_id):
     """Thread responsável por escutar mensagens de um cliente."""
@@ -37,18 +73,27 @@ def handle_client(conn, addr, player_id):
     print(f"[INFO] Jogador {player_id} conectado de {addr}")
 
     # Envia ID atribuído ao jogador
-    send_messahe(conn, {
+    send_message(conn, {
         "type": MSG_ASSIGN_ID,
         "player_id": player_id
     })
+
+    buffer = ""
 
     try:
         while True:
             data = conn.recv(1024)
             if not data:
                 break
-            message = json.loads(data.decode("utf-8"))
-            print(f"[RECEBIDO] Jogador {player_id}: {message}")
+            buffer += data.decode("utf-8")
+            while "\n" in buffer:
+                line, buffer = buffer.split("\n", 1)
+                message = json.loads(line)
+
+                if message["type"] == MSG_MOVE:
+                    with lock:
+                        process_move(player_id, message["direction"])
+                        broadcast_state()
     except Exception as e:
         print(f"[ERROR] Jogador {player_id}: {e}")
     finally:
@@ -75,7 +120,7 @@ def start_server():
 
         with lock:
             if len(clients) >= MAX_PLAYERS:
-                send_messahe(conn, {
+                send_message(conn, {
                     "type": MSG_DISCONNECT,
                     "reason": "Servidor cheio"
                 })
