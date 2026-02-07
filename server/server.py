@@ -12,7 +12,8 @@ Responsável por:
 import socket
 import threading
 import json
-from protocol import MSG_ASSIGN_ID, MSG_DISCONNECT, MSG_STATE, MSG_MOVE
+from protocol import MSG_ASSIGN_ID, MSG_DISCONNECT, MSG_STATE, MSG_MOVE, MSG_SHOOT
+import time 
 
 # Configuração do Servidor
 
@@ -21,13 +22,31 @@ PORT = 5000
 MAX_PLAYERS = 2
 MOVE_STEP = 2 #Pixels por movimento
 
+BULLET_SPEED = 4
+BULLET_SIZE = 2
+DAMAGE = 10
+SCREEN_WIDTH = 160
+SCREEN_HEIGHT = 120
+
+SHOT_COOLDOWN = 0.25  # segundos entre tiros (quanto maior, mais lento)
+
+
+
+
 #estado global do jogo
 game_state = {
     "players": {
-        1: {"x": 20, "y": 60},
-        2: {"x": 120, "y": 60}
-    }
+        1: {"x": 20, "y": 60, "hp": 100},
+        2: {"x": 120, "y": 60, "hp": 100}
+    },
+    "bullets": []
 }
+
+last_shot_time = {
+    1: 0,
+    2: 0
+}
+
 
 # Estado do servidor
 clients = {}  # player_id -> socket
@@ -45,7 +64,8 @@ def broadcast_state():
     """Envia o estado atual do jogo para todos os clientes"""
     message = {
         "type": MSG_STATE,
-        "players": game_state["players"]
+        "players": game_state["players"],
+        "bullets": game_state["bullets"]
     }
 
     for conn in clients.values():
@@ -65,6 +85,64 @@ def process_move(player_id, direction):
         player["x"] -= MOVE_STEP
     elif direction == "right":
         player["x"] += MOVE_STEP
+
+def create_bullet(player_id):
+    """Cria uma bala disparada por um jogador."""
+
+    now = time.time()
+
+    # Verifica cooldown
+    if now - last_shot_time[player_id] < SHOT_COOLDOWN:
+        return
+    
+    last_shot_time[player_id] = now
+
+    player = game_state["players"].get(player_id)
+    if not player:
+        return
+
+    bullet = {
+        "x": player["x"] + 3 , 
+        "y": player["y"],
+        "dir": 1 if player_id == 1 else -1,
+        "owner": player_id
+    }
+    game_state["bullets"].append(bullet)
+
+def update_bullets():
+    """Atualiza a Posição das balas e verifica colisões."""
+    bullets_to_remove = []
+
+    for bullet in game_state["bullets"]:
+
+        bullet["x"] += bullet["dir"] * BULLET_SPEED
+
+        # fora da tela 
+        if bullet["x"] < 0 or bullet["x"] > SCREEN_WIDTH:
+            bullets_to_remove.append(bullet)
+            continue
+
+        # Verifica colisão com jogadores
+        for pid, player in game_state["players"].items():
+            if pid == bullet["owner"]:
+                continue
+            
+            if (abs(bullet["x"] - player["x"]) < 6 and
+                abs (bullet["y"] - player["y"]) < 6):
+                player["hp"] -= DAMAGE
+                bullets_to_remove.append(bullet)
+    
+    for b in bullets_to_remove:
+        if b in game_state["bullets"]:
+            game_state["bullets"].remove(b)
+
+def game_loop():
+    """Loop principal do jogo, atualiza o estado e envia para os clientes."""
+    while True:
+        with lock:
+            update_bullets()
+            broadcast_state()
+        time.sleep(0.05) # 20 FPS
 
 
 def handle_client(conn, addr, player_id):
@@ -94,6 +172,10 @@ def handle_client(conn, addr, player_id):
                     with lock:
                         process_move(player_id, message["direction"])
                         broadcast_state()
+                elif message["type"] == MSG_SHOOT:
+                    with lock:
+                        create_bullet(player_id)
+
     except Exception as e:
         print(f"[ERROR] Jogador {player_id}: {e}")
     finally:
@@ -114,7 +196,8 @@ def start_server():
 
     player_id_counter = 1
 
-    
+    threading.Thread(target=game_loop, daemon=True).start()
+
     while True:
         conn, addr = server_sock.accept()
 

@@ -13,7 +13,7 @@ import socket
 import json
 import threading
 import pyxel
-from protocol import MSG_ASSIGN_ID, MSG_DISCONNECT, MSG_STATE, MSG_MOVE
+from protocol import MSG_ASSIGN_ID, MSG_STATE, MSG_MOVE, MSG_SHOOT
 
 # Configuração do Cliente
 
@@ -71,7 +71,7 @@ class SpaceDuelClient:
 
                     elif message["type"] == MSG_STATE:
                         with lock: 
-                            players_state = message["players"]
+                            players_state = message
                             
             except Exception as e:
                     print(f"[ERROR] Erro ao receber dados: {e}")
@@ -87,30 +87,50 @@ class SpaceDuelClient:
 
         self.sock.sendall((json.dumps(message) + "\n").encode("utf-8"))
 
+    def send_shoot(self):
+        """Envia comando de atirar ao servidor"""
+
+        message = {
+            "type": MSG_SHOOT
+        }
+
+        self.sock.sendall((json.dumps(message) + "\n").encode("utf-8"))
+
     def update(self):
         """Captura input do teclado"""
-        if pyxel.btnp(pyxel.KEY_UP):
+        if pyxel.btn(pyxel.KEY_UP):
             self.send_move("up")
-        elif pyxel.btnp(pyxel.KEY_DOWN):
+        elif pyxel.btn(pyxel.KEY_DOWN):
             self.send_move("down")
-        elif pyxel.btnp(pyxel.KEY_LEFT):
+        elif pyxel.btn(pyxel.KEY_LEFT):
             self.send_move("left")
-        elif pyxel.btnp(pyxel.KEY_RIGHT):
+        elif pyxel.btn(pyxel.KEY_RIGHT):
             self.send_move("right")
+
+        if pyxel.btn(pyxel.KEY_SPACE):
+            self.send_shoot()
                 
     def draw(self):
-        """Renderiza o jogo."""
         pyxel.cls(0)
 
         with lock:
-            for pid, player in players_state.items():
-                x = player["x"]
-                y = player["y"]
 
-                # Cor diferente para o próprio jogador
+            players = players_state.get("players", {})
+            bullets = players_state.get("bullets", [])
+
+            # Jogadores
+            for pid, player in players.items():
+                x, y = player["x"], player["y"]
                 color = 11 if player_id is not None and int(pid) == player_id else 8
-
                 pyxel.rect(x, y, SHIP_SIZE, SHIP_SIZE, color)
+
+                # Barra de vida
+                pyxel.rect(x, y - 4, max(player["hp"] // 10, 0), 2, 8)
+
+            # Balas
+            for bullet in bullets:
+                pyxel.rect(bullet["x"], bullet["y"], 2, 2, 7)
+
 
 if __name__ == "__main__":
     SpaceDuelClient()
