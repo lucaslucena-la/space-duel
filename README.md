@@ -32,16 +32,21 @@ python -m server.server
 
 ## 📌 Status do Projeto
 
-### ✔ Passo 1 — Conexão de Rede
+### ✔ Conexão de Rede
 - Servidor TCP
 - Conexão de dois clientes
 - Identificação dos jogadores
 
-### ✔ Passo 2 — Estado Compartilhado
+### ✔ Estado Compartilhado
 - Servidor autoritário
 - Estado global do jogo
 - Movimento sincronizado em tempo real
 - Comunicação via JSON sobre TCP
 
-⬜ Passo 3 — Interface Gráfica (Pyxel)
+### ✔ Interface Gráfica (Pyxel)
+- Integração com Pyxel
+- Renderização das naves
+- Controle por teclado
+- Estado sincronizado em tempo real
+- Cliente fino (apenas renderiza e envia eventos)
 ⬜ Passo 4 — Tiros e colisões
