@@ -30,9 +30,6 @@ SCREEN_HEIGHT = 120
 
 SHOT_COOLDOWN = 0.25  # segundos entre tiros (quanto maior, mais lento)
 
-
-
-
 #estado global do jogo
 game_state = {
     "players": {
@@ -102,8 +99,8 @@ def create_bullet(player_id):
         return
 
     bullet = {
-        "x": player["x"] + 3 , 
-        "y": player["y"],
+        "x": player["x"] + 3, 
+        "y": player["y"] + 3,
         "dir": 1 if player_id == 1 else -1,
         "owner": player_id
     }
@@ -126,9 +123,13 @@ def update_bullets():
         for pid, player in game_state["players"].items():
             if pid == bullet["owner"]:
                 continue
-            
-            if (abs(bullet["x"] - player["x"]) < 6 and
-                abs (bullet["y"] - player["y"]) < 6):
+            # colisão entre bala e jogador
+            if (
+                bullet["x"] < player["x"] + 8 and
+                bullet["x"] > player["x"] and
+                bullet["y"] < player["y"] + 8 and
+                bullet["y"] + 2 > player["y"]
+            ):
                 player["hp"] -= DAMAGE
                 bullets_to_remove.append(bullet)
     
@@ -181,8 +182,28 @@ def handle_client(conn, addr, player_id):
     finally:
         print(f"[INFO] Jogador {player_id} desconectado")
         with lock:
-            del clients[player_id]
+            clients.pop(player_id, None)
+
+            # Se todos os jogadores desconectarem, reinicia o jogo
+            if len(clients) < 2:
+                reset_player(1)
+                reset_player(2)
+                game_state["bullets"].clear()
         conn.close()
+
+def get_free_player_id():
+    """Retorna o menor ID de jogador disponível."""
+    for pid in range(1, MAX_PLAYERS + 1):
+        if pid not in clients:
+            return pid
+    return None
+
+def reset_player(player_id):
+    """Reseta posição e HP do jogador."""
+    if player_id == 1:
+        game_state["players"][1] = {"x": 20, "y": 60, "hp": 100}
+    elif player_id == 2:
+        game_state["players"][2] = {"x": 120, "y": 60, "hp": 100}
 
 def start_server():
     """Inicializa o servidor e aceita conexões de clientes."""
@@ -194,15 +215,15 @@ def start_server():
 
     print(f"[INFO] Servidor iniciado em {HOST}:{PORT}")
 
-    player_id_counter = 1
-
     threading.Thread(target=game_loop, daemon=True).start()
 
     while True:
         conn, addr = server_sock.accept()
 
         with lock:
-            if len(clients) >= MAX_PLAYERS:
+            player_id = get_free_player_id()
+
+            if player_id is None:
                 send_message(conn, {
                     "type": MSG_DISCONNECT,
                     "reason": "Servidor cheio"
@@ -210,9 +231,13 @@ def start_server():
                 conn.close()
                 continue
 
-            player_id = player_id_counter
             clients[player_id] = conn
-            player_id_counter += 1
+
+            # Se todos os jogadores estiverem conectados, resetar os jogadores
+            if len(clients) == 2:
+                reset_player(1)
+                reset_player(2)
+                game_state["bullets"].clear()
 
         thread = threading.Thread(target=handle_client, args=(conn, addr, player_id), daemon=True)
         thread.start()

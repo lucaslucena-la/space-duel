@@ -1,0 +1,8 @@
+- Background Estrelado (Cliente)
+- Correção de IDs de Jogadores (Servidor)
+    - Reset correto ao desconectar
+    - Reset automático da partida (2 jogadores)
+    
+- Inserção das naves para cada player
+- Hitbox de colisão ajustado
+- Inserção de barra de vida com corações
