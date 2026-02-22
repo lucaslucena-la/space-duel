@@ -17,7 +17,7 @@ import time
 
 # Configuração do Servidor
 
-HOST = "127.0.0.1"   # localhost
+HOST = "0.0.0.0" # Aceita conexões de qualquer endereço
 PORT = 5000
 MAX_PLAYERS = 2
 MOVE_STEP = 2 #Pixels por movimento
@@ -168,11 +168,17 @@ def update_bullets():
                 bullet["y"] + 2 > player["y"]
             ):
                 player["hp"] -= DAMAGE
+                player["hit_timer"] = 2  # frames de efeito vermelho
                 # se jogador morreu 
                 if player["hp"] <= 0:
                     handle_game_over(bullet["owner"])
                 bullets_to_remove.append(bullet)
     
+    # tempo de efeito de dano
+    for player in game_state["players"].values():
+        if player.get("hit_timer", 0) > 0:
+            player["hit_timer"] -= 1
+
     for b in bullets_to_remove:
         if b in game_state["bullets"]:
             game_state["bullets"].remove(b)
@@ -369,4 +375,7 @@ def start_server():
         thread = threading.Thread(target=handle_client, args=(conn, addr, player_id), daemon=True)
         thread.start()
 if __name__ == "__main__":
-    start_server()
+    try:
+        start_server()
+    except KeyboardInterrupt:
+        print("\n[INFO] Servidor encerrado")

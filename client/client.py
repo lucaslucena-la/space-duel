@@ -18,7 +18,7 @@ import random
 
 # Configuração do Cliente
 
-SERVER_HOST = "127.0.0.1" # Endereço IP do servidor
+SERVER_HOST = "" # Endereço IP do servidor
 SERVER_PORT = 5000       # Porta do servidor
 
 SCREEN_WIDTH = 160
@@ -37,6 +37,8 @@ players_state ={}
 lock = threading.Lock()
 
 disconnect_reason = None
+
+server_disconnected = False
 
 class Background:
     def __init__(self, width, height, num_stars=100):
@@ -94,16 +96,39 @@ class SpaceDuelClient:
         # inicializa o background
         self.background = Background(SCREEN_WIDTH, SCREEN_HEIGHT)
 
+        # inicializa o audio
+        self.init_audio()
+
         pyxel.run(self.update, self.draw)
+
+    def init_audio(self):
+        pyxel.sounds[0].set("c3e3g3c4a3a2c1a1","t","2","n",25)
+        pyxel.musics[0].set([0],[],[],[])
+
+        pyxel.sounds[1].set("a2a1c0a0", "p", "5", "s", 5)
+        pyxel.sounds[2].set("f4c4","n","5","n",12)
+
+        pyxel.playm(0, loop=True)
 
     def draw_players(self, players):
         for pid, player in players.items():
             x, y = player["x"], player["y"]
 
+            hit_timer = player.get("hit_timer", 0)
+
+            # Feedback de dano
             if int(pid) == 1:
-                pyxel.blt(x, y, 0, 0, 0, 8, 8, 0)
+                if hit_timer > 0:
+                    pyxel.blt(x, y, 0, 16, 0, 8, 8, 0)
+                    pyxel.play(2, 2)  # canal 2, som de hit
+                else:
+                    pyxel.blt(x, y, 0, 0, 0, 8, 8, 0)
             else:
-                pyxel.blt(x, y, 0, 8, 0, 8, 8, 0)
+                if hit_timer > 0:
+                    pyxel.blt(x, y, 0, 24, 0, 8, 8, 0)
+                    pyxel.play(2, 2)  # canal 2, som de hit
+                else:
+                    pyxel.blt(x, y, 0, 8, 0, 8, 8, 0)
     
     def draw_hearts(self, player_hp, x, y):
         """Desenha corações de acordo com o HP do jogador"""
@@ -135,6 +160,8 @@ class SpaceDuelClient:
                 data = self.sock.recv(1024)
                 if not data:
                     print("Desconectado do servidor")
+                    global server_disconnected
+                    server_disconnected = True
                     break
 
                 buffer += data.decode("utf-8")
@@ -158,6 +185,7 @@ class SpaceDuelClient:
                             
             except Exception as e:
                     print(f"[ERROR] Erro ao receber dados: {e}")
+                    server_disconnected = True
                     break
             
     def send_move(self, direction):
@@ -182,7 +210,13 @@ class SpaceDuelClient:
     def update(self):
         """Captura input do teclado"""
 
-        # Se o servidor estiver cheio e um jogador foi desconectado, aguarda apertar Q para sair
+        # Se o servidor estiver cair, fecha o jogo
+        global server_disconnected
+        if server_disconnected:
+            pyxel.quit()
+            return
+
+        # Se o servidor estiver cheio, informa e aguarda apertar Q para sair
         global disconnect_reason
         if disconnect_reason:
             if pyxel.btnp(pyxel.KEY_Q):
@@ -194,10 +228,19 @@ class SpaceDuelClient:
         # Se o jogo acabou, aguarda apertar ENTER para reiniciar
         if game_over:
             if pyxel.btnp(pyxel.KEY_RETURN):
+                pyxel.play(1, 1)
                 self.sock.sendall((json.dumps({"type": MSG_READY})+"\n").encode("utf-8"))
             elif pyxel.btnp(pyxel.KEY_Q):
+                pyxel.play(2, 2)
                 pyxel.quit()
             return
+        
+        phase = players_state.get("phase", "WAITING")
+        if phase == "WAITING":
+            if pyxel.btnp(pyxel.KEY_Q):
+                pyxel.play(2, 2)
+                pyxel.quit()
+
 
         if pyxel.btn(pyxel.KEY_UP):
             self.send_move("up")
@@ -208,8 +251,9 @@ class SpaceDuelClient:
         elif pyxel.btn(pyxel.KEY_RIGHT):
             self.send_move("right")
 
-        if pyxel.btn(pyxel.KEY_SPACE):
+        if pyxel.btnp(pyxel.KEY_SPACE):
             self.send_shoot()
+            pyxel.play(1, 1)
 
         # Atualiza o background
         self.background.update()
@@ -265,6 +309,7 @@ class SpaceDuelClient:
 
     def draw_waiting(self):
         pyxel.text((SCREEN_WIDTH - 68)//2, (SCREEN_HEIGHT - 6)//2, "WAITING PLAYER...", pyxel.frame_count % 16)
+        pyxel.text((SCREEN_WIDTH - 32)//2, (SCREEN_HEIGHT - 6)//2 + 10, "Q - QUIT", pyxel.COLOR_WHITE)
         
     def draw_countdown(self):
         countdown = players_state.get("countdown", 0)

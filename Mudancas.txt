@@ -12,3 +12,6 @@
 - Placar de vitórias
 - Reinicio de jogo e partida
 - Telas de espera, jogando, game over e contagem regressiva
+- Musica e sons de tiro e impacto
+- Feedback visual ao receber dano
+- Servidor aceita conexões de qualquer endereço
