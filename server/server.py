@@ -241,7 +241,6 @@ def handle_client(conn, addr, player_id):
                 if message["type"] == MSG_MOVE:
                     with lock:
                         process_move(player_id, message["direction"])
-                        broadcast_state()
                 elif message["type"] == MSG_SHOOT:
                     with lock:
                         create_bullet(player_id)

@@ -15,6 +15,8 @@ import threading
 import pyxel
 from protocol import MSG_ASSIGN_ID, MSG_STATE, MSG_MOVE, MSG_SHOOT, MSG_READY, MSG_DISCONNECT
 import random
+import time
+
 
 # Configuração do Cliente
 
@@ -99,7 +101,10 @@ class SpaceDuelClient:
         # inicializa o audio
         self.init_audio()
 
+        self.last_move_time = 0
+        self.move_interval = 0.05  # 50ms (20 movimentos por segundo)
         pyxel.run(self.update, self.draw)
+
 
     def init_audio(self):
         pyxel.sounds[0].set("c3e3g3c4a3a2c1a1","t","2","n",25)
@@ -242,14 +247,25 @@ class SpaceDuelClient:
                 pyxel.quit()
 
 
-        if pyxel.btn(pyxel.KEY_UP):
-            self.send_move("up")
-        elif pyxel.btn(pyxel.KEY_DOWN):
-            self.send_move("down")
-        elif pyxel.btn(pyxel.KEY_LEFT):
-            self.send_move("left")
-        elif pyxel.btn(pyxel.KEY_RIGHT):
-            self.send_move("right")
+        current_time = time.time()
+
+        if current_time - self.last_move_time > self.move_interval:
+
+            if pyxel.btn(pyxel.KEY_UP):
+                self.send_move("up")
+                self.last_move_time = current_time
+
+            elif pyxel.btn(pyxel.KEY_DOWN):
+                self.send_move("down")
+                self.last_move_time = current_time
+
+            elif pyxel.btn(pyxel.KEY_LEFT):
+                self.send_move("left")
+                self.last_move_time = current_time
+
+            elif pyxel.btn(pyxel.KEY_RIGHT):
+                self.send_move("right")
+                self.last_move_time = current_time
 
         if pyxel.btnp(pyxel.KEY_SPACE):
             self.send_shoot()
