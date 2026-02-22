@@ -15,3 +15,4 @@ MSG_ERROR = "error"
 #Eventos do jogo
 MSG_MOVE = "move"
 MSG_SHOOT = "shoot"
+MSG_READY = "ready"

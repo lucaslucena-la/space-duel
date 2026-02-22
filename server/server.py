@@ -12,7 +12,7 @@ Responsável por:
 import socket
 import threading
 import json
-from protocol import MSG_ASSIGN_ID, MSG_DISCONNECT, MSG_STATE, MSG_MOVE, MSG_SHOOT
+from protocol import MSG_ASSIGN_ID, MSG_DISCONNECT, MSG_STATE, MSG_MOVE, MSG_SHOOT, MSG_READY
 import time 
 
 # Configuração do Servidor
@@ -28,13 +28,19 @@ DAMAGE = 10
 SCREEN_WIDTH = 160
 SCREEN_HEIGHT = 120
 
-SHOT_COOLDOWN = 0.25  # segundos entre tiros (quanto maior, mais lento)
+SHOT_COOLDOWN = 0.35  # segundos entre tiros (quanto maior, mais lento)
+
+# variáveis globais
+game_over = False
+winner = None
+game_phase = "WAITING"
+countdown = 0
 
 #estado global do jogo
 game_state = {
     "players": {
-        1: {"x": 20, "y": 60, "hp": 100},
-        2: {"x": 120, "y": 60, "hp": 100}
+        1: {"x": (SCREEN_WIDTH - 8) // 2 - 60, "y": (SCREEN_HEIGHT - 8) // 2, "hp": 100},
+        2: {"x": (SCREEN_WIDTH - 8) // 2 + 60, "y": (SCREEN_HEIGHT - 8) // 2, "hp": 100}
     },
     "bullets": []
 }
@@ -44,6 +50,17 @@ last_shot_time = {
     2: 0
 }
 
+# placar
+score = {
+    1: 0,
+    2: 0
+}
+
+# jogadores prontos
+ready_players = {
+    1: False,
+    2: False
+}
 
 # Estado do servidor
 clients = {}  # player_id -> socket
@@ -62,7 +79,13 @@ def broadcast_state():
     message = {
         "type": MSG_STATE,
         "players": game_state["players"],
-        "bullets": game_state["bullets"]
+        "bullets": game_state["bullets"],
+        "score": score,
+        "game_over": game_over,
+        "winner": winner,
+        "phase": game_phase,
+        "countdown": countdown,
+        "ready": ready_players
     }
 
     for conn in clients.values():
@@ -70,22 +93,36 @@ def broadcast_state():
 
 def process_move(player_id, direction):
     """Atualiza a posição do jogador com base na direção."""
+    if game_over:
+        return
+    if game_phase != "PLAYING":
+        return
+
     player = game_state["players"].get(player_id)
     if not player:
         return
 
+    # Limita movimento para dentro da tela
     if direction == "up":
-        player["y"] -= MOVE_STEP
+        if player["y"] >= 18:
+            player["y"] -= MOVE_STEP
     elif direction == "down":
-        player["y"] += MOVE_STEP
+        if player["y"] <= SCREEN_HEIGHT - 11:
+            player["y"] += MOVE_STEP
     elif direction == "left":
-        player["x"] -= MOVE_STEP
+        if player["x"] >= 3:
+            player["x"] -= MOVE_STEP
     elif direction == "right":
-        player["x"] += MOVE_STEP
+        if player["x"] <= SCREEN_WIDTH - 11:
+            player["x"] += MOVE_STEP
 
 def create_bullet(player_id):
     """Cria uma bala disparada por um jogador."""
-
+    if game_over:
+        return
+    if game_phase != "PLAYING":
+        return
+    
     now = time.time()
 
     # Verifica cooldown
@@ -131,6 +168,9 @@ def update_bullets():
                 bullet["y"] + 2 > player["y"]
             ):
                 player["hp"] -= DAMAGE
+                # se jogador morreu 
+                if player["hp"] <= 0:
+                    handle_game_over(bullet["owner"])
                 bullets_to_remove.append(bullet)
     
     for b in bullets_to_remove:
@@ -145,6 +185,29 @@ def game_loop():
             broadcast_state()
         time.sleep(0.05) # 20 FPS
 
+def handle_game_over(winner_id):
+    global game_over, winner
+
+    # Se o jogo já terminou, não faz nada (evita duplicar pontos)
+    if game_over:
+        return
+
+    # Marca que a partida terminou
+    game_over = True
+
+    # Define qual jogador venceu
+    winner = winner_id
+
+    # Incrementa o placar do vencedor
+    score[winner_id] += 1
+
+    # Reseta estado de "pronto para reiniciar"
+    # Ambos jogadores precisarão apertar ENTER novamente
+    ready_players[1] = False
+    ready_players[2] = False
+
+    # Log no servidor
+    print(f"[GAME OVER] Jogador {winner_id} venceu!")
 
 def handle_client(conn, addr, player_id):
     """Thread responsável por escutar mensagens de um cliente."""
@@ -176,6 +239,14 @@ def handle_client(conn, addr, player_id):
                 elif message["type"] == MSG_SHOOT:
                     with lock:
                         create_bullet(player_id)
+                elif message["type"] == MSG_READY:
+                    with lock:
+                        ready_players[player_id] = True
+
+                        # se os dois prontos, reinicia
+                        if ready_players[1] and ready_players[2]:
+                            start_countdown()
+                            reset_match()
 
     except Exception as e:
         print(f"[ERROR] Jogador {player_id}: {e}")
@@ -186,9 +257,7 @@ def handle_client(conn, addr, player_id):
 
             # Se todos os jogadores desconectarem, reinicia o jogo
             if len(clients) < 2:
-                reset_player(1)
-                reset_player(2)
-                game_state["bullets"].clear()
+                reset_game()
         conn.close()
 
 def get_free_player_id():
@@ -198,12 +267,71 @@ def get_free_player_id():
             return pid
     return None
 
+def start_countdown():
+    global game_phase, countdown
+
+    # Define a fase atual como contagem regressiva
+    game_phase = "COUNTDOWN"
+    countdown = 3
+
+    def tick():
+        global countdown, game_phase
+        # Se ainda há tempo na contagem
+        if countdown > 0:
+            countdown -= 1 # diminui 1 segundo
+
+            # Agenda nova chamada em 1 segundo
+            threading.Timer(1.0, tick).start()
+        else:
+            # Antes de iniciar partida, checa se ainda tem dois jogadores
+            if len(clients) < 2:
+                game_phase = "WAITING"
+                return
+
+            # Quando chega em 0 o jogo começa
+            game_phase = "PLAYING"
+
+    # Inicia a primeira chamada após 1 segundo
+    threading.Timer(1.0, tick).start()
+
+def reset_game():
+    global game_over, winner, game_phase, countdown
+
+    # Reseta jogadores para posições e HP iniciais e remove as balas
+    reset_player(1)
+    reset_player(2)
+    game_state["bullets"].clear()
+
+    # Zera o placar geral
+    score[1] = 0
+    score[2] = 0
+
+    # Volta para fase de espera por jogadores
+    game_phase = "WAITING"
+    countdown = 0
+
+    # Marca que não há partida encerrada e remove o vencedor
+    game_over = False
+    winner = None
+
+def reset_match():
+    global game_over, winner
+
+    # Reseta jogadores para posições e HP iniciais e remove as balas
+    reset_player(1)
+    reset_player(2)
+    game_state["bullets"].clear()
+
+    # Marca que não há partida encerrada e remove o vencedor
+    game_over = False
+    winner = None
+
 def reset_player(player_id):
     """Reseta posição e HP do jogador."""
     if player_id == 1:
-        game_state["players"][1] = {"x": 20, "y": 60, "hp": 100}
+        game_state["players"][1] = {"x": (SCREEN_WIDTH - 8) // 2 - 60, "y": (SCREEN_HEIGHT - 8) // 2, "hp": 100}
     elif player_id == 2:
-        game_state["players"][2] = {"x": 120, "y": 60, "hp": 100}
+        game_state["players"][2] = {"x": (SCREEN_WIDTH - 8) // 2 + 60, "y": (SCREEN_HEIGHT - 8) // 2, "hp": 100}
 
 def start_server():
     """Inicializa o servidor e aceita conexões de clientes."""
@@ -235,9 +363,8 @@ def start_server():
 
             # Se todos os jogadores estiverem conectados, resetar os jogadores
             if len(clients) == 2:
-                reset_player(1)
-                reset_player(2)
-                game_state["bullets"].clear()
+                reset_game()
+                start_countdown()
 
         thread = threading.Thread(target=handle_client, args=(conn, addr, player_id), daemon=True)
         thread.start()

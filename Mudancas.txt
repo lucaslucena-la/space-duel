@@ -6,3 +6,9 @@
 - Inserção das naves para cada player
 - Hitbox de colisão ajustado
 - Inserção de barra de vida com corações
+- Limita movimento das naves à área da tela
+- Definir vencedor e perdedor
+- Após game over movimentação e tiros interrompidos
+- Placar de vitórias
+- Reinicio de jogo e partida
+- Telas de espera, jogando, game over e contagem regressiva

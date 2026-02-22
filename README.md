@@ -100,44 +100,6 @@ python -m client.client
 
 # 🚧 Próximos Passos - Space Duel
 
-## Fim de Jogo (Encerramento da Partida)
-
-### Objetivo
-Finalizar a partida de forma controlada quando um jogador perde toda a vida.
-
-### Funcionalidades
-- Detectar no servidor quando `HP ≤ 0`
-- Definir vencedor e perdedor
-- Interromper movimentação e tiros
-- Enviar estado final aos clientes
-- Exibir mensagem **“Game Over”** na tela
-
-
-## 🟧 Polimento da Jogabilidade
-
-### Objetivo
-Melhorar a estabilidade e previsibilidade do jogo.
-
-### Funcionalidades
-- Limitar movimento das naves à área da tela
-- Evitar que HP fique negativo
-- Ajustar hitbox de colisão
-- Adicionar **cooldown de tiro** para evitar spam
-- Configurar velocidades como constantes
-
-## 🟨 Interface e Experiência do Usuário (UX)
-
-### Objetivo
-Tornar o jogo mais claro e amigável para o jogador.
-
-### Funcionalidades
-- Exibir HP numericamente
-- Placar de vitórias
-- Identificação visual do jogador
-- Tela inicial (aguardando conexão)
-- Tela de reinício da partida
-
-
 ## 🟩 Efeitos Visuais e Sons
 
 ### Objetivo

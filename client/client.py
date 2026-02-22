@@ -13,7 +13,7 @@ import socket
 import json
 import threading
 import pyxel
-from protocol import MSG_ASSIGN_ID, MSG_STATE, MSG_MOVE, MSG_SHOOT
+from protocol import MSG_ASSIGN_ID, MSG_STATE, MSG_MOVE, MSG_SHOOT, MSG_READY, MSG_DISCONNECT
 import random
 
 # Configuração do Cliente
@@ -23,7 +23,7 @@ SERVER_PORT = 5000       # Porta do servidor
 
 SCREEN_WIDTH = 160
 SCREEN_HEIGHT = 120
-SHIP_SIZE = 6
+PLAYER_SIZE = 8
 
 HEART_SIZE = 8      # largura e altura do coração no banco de imagens
 MAX_HEARTS = 5      # número total de corações por jogador
@@ -35,6 +35,8 @@ player_id = None
 players_state ={}
 
 lock = threading.Lock()
+
+disconnect_reason = None
 
 class Background:
     def __init__(self, width, height, num_stars=100):
@@ -70,7 +72,7 @@ class Background:
     def draw(self):
         # Desenha todas as estrelas
         for x, y in self.stars:
-            pyxel.pset(x, y, pyxel.COLOR_WHITE) # Desenha a estrela na cor branca na posição (x, y)
+            pyxel.pset(x, y, pyxel.COLOR_CYAN) # Desenha a estrela na cor ciana na posição (x, y)
 
 class SpaceDuelClient:
     def __init__(self):
@@ -148,6 +150,11 @@ class SpaceDuelClient:
                     elif message["type"] == MSG_STATE:
                         with lock: 
                             players_state = message
+
+                    elif message["type"] == MSG_DISCONNECT:
+                        global disconnect_reason
+                        disconnect_reason = message.get("reason", "")
+                        return
                             
             except Exception as e:
                     print(f"[ERROR] Erro ao receber dados: {e}")
@@ -174,6 +181,24 @@ class SpaceDuelClient:
 
     def update(self):
         """Captura input do teclado"""
+
+        # Se o servidor estiver cheio e um jogador foi desconectado, aguarda apertar Q para sair
+        global disconnect_reason
+        if disconnect_reason:
+            if pyxel.btnp(pyxel.KEY_Q):
+                pyxel.quit()
+            return
+
+        game_over = players_state.get("game_over", False)
+
+        # Se o jogo acabou, aguarda apertar ENTER para reiniciar
+        if game_over:
+            if pyxel.btnp(pyxel.KEY_RETURN):
+                self.sock.sendall((json.dumps({"type": MSG_READY})+"\n").encode("utf-8"))
+            elif pyxel.btnp(pyxel.KEY_Q):
+                pyxel.quit()
+            return
+
         if pyxel.btn(pyxel.KEY_UP):
             self.send_move("up")
         elif pyxel.btn(pyxel.KEY_DOWN):
@@ -191,32 +216,81 @@ class SpaceDuelClient:
                 
     def draw(self):
 
+        # Se o servidor estiver cheio e um jogador foi desconectado, mostra a mensagem
+        global disconnect_reason
+        if disconnect_reason:
+            self.background.draw()
+            pyxel.text((SCREEN_WIDTH - 56)//2, SCREEN_HEIGHT//3, f"Server is full", pyxel.frame_count % 16)
+            pyxel.text((SCREEN_WIDTH - 32)//2, 50, "Q - QUIT", pyxel.COLOR_WHITE)
+            return
+
         # Desenha o background
         pyxel.cls(0)
         self.background.draw()
 
         with lock:
+            phase = players_state.get("phase", "WAITING")
+            game_over = players_state.get("game_over", False)
 
-            players = players_state.get("players", {})
-            bullets = players_state.get("bullets", [])
+            if game_over:
+                self.draw_game_over()
+            elif phase == "WAITING":
+                self.draw_waiting()
+            elif phase == "COUNTDOWN":
+                self.draw_countdown()
+            elif phase == "PLAYING":
+                self.draw_playing()
 
-            # Desenha o jogador
-            self.draw_players(players)
+    def draw_playing(self):
+        players = players_state.get("players", {})
+        bullets = players_state.get("bullets", [])
 
-            # Jogadores
-            for pid, player in players.items():
-                # barras de vida
-                # jogador 1 → topo esquerdo
-                if int(pid) == 1:
-                    self.draw_hearts(player["hp"], 2, 0)
-                else:
-                    # jogador 2 → topo direito (ou outro canto)
-                    self.draw_hearts(player["hp"], SCREEN_WIDTH - (HEART_SIZE+1)*MAX_HEARTS - 2, 0)
+        self.draw_players(players)
 
-            # Balas
-            for bullet in bullets:
-                pyxel.rect(bullet["x"], bullet["y"], 2, 2, 7)
+        # vidas
+        for pid, player in players.items():
+            if int(pid) == 1:
+                self.draw_hearts(player["hp"], 1, 0)
+            else:
+                self.draw_hearts(player["hp"], SCREEN_WIDTH - (HEART_SIZE+1)*MAX_HEARTS, 0)
 
+        # balas
+        for bullet in bullets:
+            pyxel.rect(bullet["x"], bullet["y"], 2, 2, pyxel.COLOR_YELLOW)
+
+        # placar
+        score = players_state.get("score", {})
+        pyxel.text(4, 9, f"P1: {score.get('1',0)}", pyxel.COLOR_WHITE)
+        pyxel.text((SCREEN_WIDTH - 28) // 2 + 52, 9, f"P2: {score.get('2',0)}", pyxel.COLOR_WHITE)
+
+    def draw_waiting(self):
+        pyxel.text((SCREEN_WIDTH - 68)//2, (SCREEN_HEIGHT - 6)//2, "WAITING PLAYER...", pyxel.frame_count % 16)
+        
+    def draw_countdown(self):
+        countdown = players_state.get("countdown", 0)
+
+        if countdown > 0:
+            pyxel.text((SCREEN_WIDTH - 4)//2, (SCREEN_HEIGHT - 6)//2, str(countdown), pyxel.frame_count % 16)
+        else:
+            pyxel.text((SCREEN_WIDTH - 24)//2, (SCREEN_HEIGHT - 6)//2, "FIGHT!", pyxel.frame_count % 16)
+            
+    def draw_game_over(self):
+        winner = players_state.get("winner")
+        ready = players_state.get("ready", {})
+
+        pyxel.text((SCREEN_WIDTH - 52)//2, SCREEN_HEIGHT//3, f"PLAYER {winner} WINS", pyxel.frame_count % 16)
+
+        p1 = "READY" if ready.get("1") else "WAIT"
+        p2 = "READY" if ready.get("2") else "WAIT"
+
+        color1 = pyxel.frame_count % 16 if p1 == "READY" else pyxel.COLOR_WHITE
+        color2 = pyxel.frame_count % 16 if p2 == "READY" else pyxel.COLOR_WHITE
+
+        pyxel.text((SCREEN_WIDTH - 36) // 2 - 25, 60, f"P1: {p1}", color1)
+        pyxel.text((SCREEN_WIDTH - 36) // 2 + 25, 60, f"P2: {p2}", color2)
+
+        pyxel.text((SCREEN_WIDTH - 72)//2, 50, "ENTER - PLAY AGAIN", pyxel.COLOR_WHITE)
+        pyxel.text((SCREEN_WIDTH - 32)//2, 70, "Q - QUIT", pyxel.COLOR_WHITE)
 
 if __name__ == "__main__":
     SpaceDuelClient()
