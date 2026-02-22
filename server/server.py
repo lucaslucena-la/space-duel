@@ -14,6 +14,8 @@ import threading
 import json
 from protocol import MSG_ASSIGN_ID, MSG_DISCONNECT, MSG_STATE, MSG_MOVE, MSG_SHOOT, MSG_READY
 import time 
+import random
+
 
 # Configuração do Servidor
 
@@ -29,12 +31,16 @@ SCREEN_WIDTH = 160
 SCREEN_HEIGHT = 120
 
 SHOT_COOLDOWN = 0.35  # segundos entre tiros (quanto maior, mais lento)
+BONUS_INTERVAL = 7      # tempo entre bônus
+BONUS_DURATION = 4      # tempo que o bônus fica na tela
 
 # variáveis globais
 game_over = False
 winner = None
 game_phase = "WAITING"
 countdown = 0
+last_bonus_spawn = time.time()
+bonus_end_time = None
 
 #estado global do jogo
 game_state = {
@@ -42,7 +48,9 @@ game_state = {
         1: {"x": (SCREEN_WIDTH - 8) // 2 - 60, "y": (SCREEN_HEIGHT - 8) // 2, "hp": 100},
         2: {"x": (SCREEN_WIDTH - 8) // 2 + 60, "y": (SCREEN_HEIGHT - 8) // 2, "hp": 100}
     },
-    "bullets": []
+    "bullets": [],
+    "bonus": None
+
 }
 
 last_shot_time = {
@@ -85,7 +93,9 @@ def broadcast_state():
         "winner": winner,
         "phase": game_phase,
         "countdown": countdown,
-        "ready": ready_players
+        "ready": ready_players,
+        "bonus": game_state["bonus"],
+        "bonus_end_time": bonus_end_time
     }
 
     for conn in clients.values():
@@ -135,13 +145,31 @@ def create_bullet(player_id):
     if not player:
         return
 
-    bullet = {
-        "x": player["x"] + 3, 
-        "y": player["y"] + 3,
-        "dir": 1 if player_id == 1 else -1,
-        "owner": player_id
+    if player.get("power", False):
+    # tiro triplo
+        offsets = [-4, 0, 4]
+        for offset in offsets:
+            bullet = {
+                "x": player["x"] + 3,
+                "y": player["y"] + 3 + offset,
+                "dir": 1 if player_id == 1 else -1,
+                "owner": player_id
+            }
+            game_state["bullets"].append(bullet)
+    else:
+        bullet = {
+            "x": player["x"] + 3,
+            "y": player["y"] + 3,
+            "dir": 1 if player_id == 1 else -1,
+            "owner": player_id
+        }
+        game_state["bullets"].append(bullet)
+
+def spawn_bonus():
+    game_state["bonus"] = {
+        "x": random.randint(20, SCREEN_WIDTH - 20),
+        "y": random.randint(20, SCREEN_HEIGHT - 20)
     }
-    game_state["bullets"].append(bullet)
 
 def update_bullets():
     """Atualiza a Posição das balas e verifica colisões."""
@@ -183,11 +211,73 @@ def update_bullets():
         if b in game_state["bullets"]:
             game_state["bullets"].remove(b)
 
+def update_bonus():
+    global last_bonus_spawn, bonus_end_time
+
+    # Só funciona durante partida ativa
+    if game_phase != "PLAYING":
+        return
+
+    current_time = time.time()
+
+    # -------------------------
+    # Se NÃO há bônus ativo
+    # -------------------------
+    if game_state["bonus"] is None:
+
+        # Espera 7 segundos desde o último evento
+        if current_time - last_bonus_spawn >= BONUS_INTERVAL:
+            game_state["bonus"] = {
+                "x": random.randint(20, SCREEN_WIDTH - 20),
+                "y": random.randint(20, SCREEN_HEIGHT - 20)
+            }
+
+            bonus_end_time = current_time + BONUS_DURATION
+            last_bonus_spawn = current_time
+
+    # -------------------------
+    # Se há bônus ativo
+    # -------------------------
+    else:
+        bonus = game_state["bonus"]
+
+        # Verifica tempo de expiração (4 segundos)
+        if current_time >= bonus_end_time:
+            game_state["bonus"] = None
+            last_bonus_spawn = current_time
+            bonus_end_time = None
+            return
+
+        # Verifica colisão com jogadores
+        for pid, player in game_state["players"].items():
+            if (
+                bonus["x"] < player["x"] + 8 and
+                bonus["x"] > player["x"] and
+                bonus["y"] < player["y"] + 8 and
+                bonus["y"] > player["y"]
+            ):
+                player["power"] = True
+                player["power_end"] = current_time + 5
+
+                game_state["bonus"] = None
+                last_bonus_spawn = current_time
+                bonus_end_time = None
+                break
+
 def game_loop():
     """Loop principal do jogo, atualiza o estado e envia para os clientes."""
     while True:
         with lock:
             update_bullets()
+            update_bonus()
+
+            current_time = time.time()
+
+            for player in game_state["players"].values():
+                if player.get("power", False):
+                    if current_time >= player.get("power_end", 0):
+                        player["power"] = False
+
             broadcast_state()
         time.sleep(0.05) # 20 FPS
 
@@ -301,6 +391,13 @@ def start_countdown():
 
 def reset_game():
     global game_over, winner, game_phase, countdown
+    global last_bonus_spawn
+    global bonus_end_time
+    
+    last_bonus_spawn = time.time()
+    bonus_end_time = None
+    
+    game_state["bonus"] = None
 
     # Reseta jogadores para posições e HP iniciais e remove as balas
     reset_player(1)
@@ -320,7 +417,10 @@ def reset_game():
     winner = None
 
 def reset_match():
-    global game_over, winner
+    global game_over, winner, last_bonus_spawn, bonus_end_time
+    last_bonus_spawn = time.time()
+    bonus_end_time = None
+    game_state["bonus"] = None
 
     # Reseta jogadores para posições e HP iniciais e remove as balas
     reset_player(1)

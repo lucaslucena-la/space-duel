@@ -105,7 +105,6 @@ class SpaceDuelClient:
         self.move_interval = 0.05  # 50ms (20 movimentos por segundo)
         pyxel.run(self.update, self.draw)
 
-
     def init_audio(self):
         pyxel.sounds[0].set("c3e3g3c4a3a2c1a1","t","2","n",25)
         pyxel.musics[0].set([0],[],[],[])
@@ -116,10 +115,20 @@ class SpaceDuelClient:
         pyxel.playm(0, loop=True)
 
     def draw_players(self, players):
+
         for pid, player in players.items():
             x, y = player["x"], player["y"]
 
             hit_timer = player.get("hit_timer", 0)
+            power = player.get("power", False)
+
+            if power:
+                # efeito pulsante
+                pulse = 5 + (pyxel.frame_count % 4)  # varia raio
+
+                # efeito piscando
+                if pyxel.frame_count % 6 < 3:
+                    pyxel.circ(x + 4, y + 4, pulse, pyxel.COLOR_YELLOW)
 
             # Feedback de dano
             if int(pid) == 1:
@@ -304,6 +313,9 @@ class SpaceDuelClient:
     def draw_playing(self):
         players = players_state.get("players", {})
         bullets = players_state.get("bullets", [])
+        bonus = players_state.get("bonus", None)
+        bonus_end_time = players_state.get("bonus_end_time")
+
 
         self.draw_players(players)
 
@@ -317,6 +329,19 @@ class SpaceDuelClient:
         # balas
         for bullet in bullets:
             pyxel.rect(bullet["x"], bullet["y"], 2, 2, pyxel.COLOR_YELLOW)
+
+        # bonus
+        if bonus is not None:
+            current_time = time.time()
+            time_left = bonus_end_time - current_time if bonus_end_time else 0
+
+            radius = 3 + (pyxel.frame_count % 3)
+
+            if time_left <= 1:
+                if pyxel.frame_count % 4 < 2:
+                    pyxel.circ(bonus["x"], bonus["y"], radius, pyxel.COLOR_RED)
+            else:
+                pyxel.circ(bonus["x"], bonus["y"], radius, pyxel.COLOR_LIME)
 
         # placar
         score = players_state.get("score", {})
