@@ -227,9 +227,12 @@ def update_bonus():
 
         # Espera 7 segundos desde o último evento
         if current_time - last_bonus_spawn >= BONUS_INTERVAL:
+            bonus_type = random.choice(["power", "health"])
+
             game_state["bonus"] = {
                 "x": random.randint(20, SCREEN_WIDTH - 20),
-                "y": random.randint(20, SCREEN_HEIGHT - 20)
+                "y": random.randint(20, SCREEN_HEIGHT - 20),
+                "type": bonus_type
             }
 
             bonus_end_time = current_time + BONUS_DURATION
@@ -256,8 +259,16 @@ def update_bonus():
                 bonus["y"] < player["y"] + 8 and
                 bonus["y"] > player["y"]
             ):
-                player["power"] = True
-                player["power_end"] = current_time + 5
+                bonus_type = bonus.get("type")
+
+                if bonus_type == "power":
+                    player["power"] = True
+                    player["power_end"] = current_time + 5
+
+                elif bonus_type == "health":
+                    player["hp"] += 40  # +2 corações
+                    if player["hp"] > 100:
+                        player["hp"] = 100
 
                 game_state["bonus"] = None
                 last_bonus_spawn = current_time

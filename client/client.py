@@ -20,7 +20,7 @@ import time
 
 # Configuração do Cliente
 
-SERVER_HOST = "" # Endereço IP do servidor
+SERVER_HOST = "192.168.1.14" # Endereço IP do servidor
 SERVER_PORT = 5000       # Porta do servidor
 
 SCREEN_WIDTH = 160
@@ -332,16 +332,30 @@ class SpaceDuelClient:
 
         # bonus
         if bonus is not None:
+            bonus_type = bonus.get("type")
+            bonus_end_time = players_state.get("bonus_end_time")
+
             current_time = time.time()
             time_left = bonus_end_time - current_time if bonus_end_time else 0
 
-            radius = 3 + (pyxel.frame_count % 3)
+            # ---------------------------
+            # BONUS DE TIRO (power)
+            # ---------------------------
+            if bonus_type == "power":
 
-            if time_left <= 1:
-                if pyxel.frame_count % 4 < 2:
-                    pyxel.circ(bonus["x"], bonus["y"], radius, pyxel.COLOR_RED)
-            else:
-                pyxel.circ(bonus["x"], bonus["y"], radius, pyxel.COLOR_LIME)
+                radius = 3 + (pyxel.frame_count % 3)
+
+                if time_left <= 1:
+                    if pyxel.frame_count % 4 < 2:
+                        pyxel.circ(bonus["x"], bonus["y"], radius, pyxel.COLOR_RED)
+                else:
+                    pyxel.circ(bonus["x"], bonus["y"], radius, pyxel.COLOR_LIME)
+
+            # ---------------------------
+            # BONUS DE VIDA (coração)
+            # ---------------------------
+            elif bonus_type == "health":
+                pyxel.blt(bonus["x"] - 4, bonus["y"] - 4, 0, 0, 8, 8, 8, 0)
 
         # placar
         score = players_state.get("score", {})
