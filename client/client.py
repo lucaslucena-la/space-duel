@@ -23,9 +23,9 @@ import time
 SERVER_HOST = "" # Endereço IP do servidor
 SERVER_PORT = 5000       # Porta do servidor
 
-SCREEN_WIDTH = 160
-SCREEN_HEIGHT = 120
-PLAYER_SIZE = 8
+SCREEN_WIDTH = 160 # Largura da tela
+SCREEN_HEIGHT = 120 # Altura da tela 
+PLAYER_SIZE = 8 # Tamanho do jogador (largura e altura)
 
 HEART_SIZE = 8      # largura e altura do coração no banco de imagens
 MAX_HEARTS = 5      # número total de corações por jogador
@@ -33,16 +33,18 @@ HEART_HP = 20       # cada coração representa 20 HP
 
 # Estado global (renderização)
 
-player_id = None
-players_state ={}
+player_id = None # ID do jogador, atribuído pelo servidor após conexão
+players_state ={} # estado dos jogadores, balas, bônus e outras informações do jogo, atualizado a cada mensagem do servidor
 
 lock = threading.Lock()
 
-disconnect_reason = None
+disconnect_reason = None 
 
 server_disconnected = False
 
+# Classe para gerenciar o background animado de estrelas, criando um efeito visual de movimento no espaço
 class Background:
+    # Inicializa o background com um número definido de estrelas em posições aleatórias dentro dos limites da tela
     def __init__(self, width, height, num_stars=100):
         # Guarda o tamanho da tela para saber os limites
         self.width = width
@@ -55,6 +57,7 @@ class Background:
             for _ in range(num_stars) # repete num_stars vezes
         ]
 
+    # Atualiza a posição das estrelas, movendo-as para baixo e reiniciando no topo quando saem da tela, criando um efeito de movimento contínuo
     def update(self):
         # nova lista com posições atualizadas
         new_stars = []
@@ -73,12 +76,14 @@ class Background:
         # substitui a lista antiga pela atualizada
         self.stars = new_stars
 
+    # Desenha as estrelas na tela usando a função pset do Pyxel, que define um pixel na posição (x, y) com a cor ciana, criando o efeito visual do fundo estrelado
     def draw(self):
         # Desenha todas as estrelas
         for x, y in self.stars:
             pyxel.pset(x, y, pyxel.COLOR_CYAN) # Desenha a estrela na cor ciana na posição (x, y)
 
 class SpaceDuelClient:
+    # Inicializa o cliente, conecta ao servidor, inicia a thread de escuta e configura o Pyxel para renderização
     def __init__(self):
         #connexão com o servidor
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM) #Cria um socket TCP
@@ -105,6 +110,7 @@ class SpaceDuelClient:
         self.move_interval = 0.05  # 50ms (20 movimentos por segundo)
         pyxel.run(self.update, self.draw)
 
+    # Configura os sons e músicas do jogo, definindo os efeitos sonoros para tiros, hits e música de fundo, e inicia a reprodução da música de fundo em loop
     def init_audio(self):
         pyxel.sounds[0].set("c3e3g3c4a3a2c1a1","t","2","n",25)
         pyxel.musics[0].set([0],[],[],[])
@@ -114,6 +120,7 @@ class SpaceDuelClient:
 
         pyxel.playm(0, loop=True)
 
+    # Desenha os jogadores na tela, aplicando efeitos visuais para indicar quando um jogador está com o bônus de tiro ativo ou quando foi atingido, usando sprites diferentes para cada estado e um efeito pulsante para o bônus
     def draw_players(self, players):
 
         for pid, player in players.items():
@@ -144,6 +151,7 @@ class SpaceDuelClient:
                 else:
                     pyxel.blt(x, y, 0, 8, 0, 8, 8, 0)
     
+    # Desenha os corações de vida dos jogadores, mostrando corações cheios, meio cheios ou vazios de acordo com o HP restante, e posicionando os corações no topo da tela para cada jogador
     def draw_hearts(self, player_hp, x, y):
         """Desenha corações de acordo com o HP do jogador"""
         hearts_to_draw = MAX_HEARTS
@@ -163,6 +171,7 @@ class SpaceDuelClient:
             pyxel.blt(x + i * (HEART_SIZE + 1), y, 0, u, 8, HEART_SIZE, HEART_SIZE, 0)
             hp_remaining -= HEART_HP
 
+    # Escuta mensagens do servidor em uma thread separada, processando mensagens de atribuição de ID, atualização de estado do jogo e notificações de desconexão, e atualizando o estado global do cliente de acordo com as informações recebidas
     def listen_server(self):
         """Escuta mensagens do servidor"""
 
@@ -201,7 +210,8 @@ class SpaceDuelClient:
                     print(f"[ERROR] Erro ao receber dados: {e}")
                     server_disconnected = True
                     break
-            
+    
+    # Envia comando de movimento ao servidor, construindo uma mensagem JSON com o tipo de movimento e a direção, e enviando-a através do socket para o servidor processar
     def send_move(self, direction):
         """Envia comando de movimento ao servidor"""
 
@@ -212,6 +222,7 @@ class SpaceDuelClient:
 
         self.sock.sendall((json.dumps(message) + "\n").encode("utf-8"))
 
+    # Envia comando de atirar ao servidor, construindo uma mensagem JSON com o tipo de ação de tiro e enviando-a através do socket para o servidor processar
     def send_shoot(self):
         """Envia comando de atirar ao servidor"""
 
@@ -221,6 +232,7 @@ class SpaceDuelClient:
 
         self.sock.sendall((json.dumps(message) + "\n").encode("utf-8"))
 
+    # Captura input do teclado, gerenciando o tempo entre movimentos para evitar excesso de comandos, e enviando comandos de movimento ou tiro ao servidor conforme as teclas pressionadas, além de lidar com estados de jogo como espera por jogadores, contagem regressiva e fim de jogo
     def update(self):
         """Captura input do teclado"""
 
@@ -248,7 +260,7 @@ class SpaceDuelClient:
                 pyxel.play(2, 2)
                 pyxel.quit()
             return
-        
+        # Se estiver esperando por jogadores, aguarda apertar Q para sair
         phase = players_state.get("phase", "WAITING")
         if phase == "WAITING":
             if pyxel.btnp(pyxel.KEY_Q):
@@ -257,7 +269,8 @@ class SpaceDuelClient:
 
 
         current_time = time.time()
-
+        
+        # Gerencia o tempo entre movimentos para evitar enviar comandos de movimento muito rapidamente
         if current_time - self.last_move_time > self.move_interval:
 
             if pyxel.btn(pyxel.KEY_UP):
@@ -275,14 +288,15 @@ class SpaceDuelClient:
             elif pyxel.btn(pyxel.KEY_RIGHT):
                 self.send_move("right")
                 self.last_move_time = current_time
-
+    
         if pyxel.btnp(pyxel.KEY_SPACE):
             self.send_shoot()
             pyxel.play(1, 1)
 
         # Atualiza o background
         self.background.update()
-                
+
+    # Renderiza o estado do jogo, desenhando o background, os jogadores, balas, bônus e informações de HUD como vida e placar, e mostrando mensagens específicas para estados como espera por jogadores, contagem regressiva e fim de jogo, além de lidar com a exibição de mensagens de desconexão do servidor      
     def draw(self):
 
         # Se o servidor estiver cheio e um jogador foi desconectado, mostra a mensagem
@@ -310,6 +324,7 @@ class SpaceDuelClient:
             elif phase == "PLAYING":
                 self.draw_playing()
 
+    # Desenha o estado de jogo ativo, incluindo jogadores, balas, bônus, vida e placar, aplicando efeitos visuais para indicar estados como bônus ativo e dano recebido, e mostrando as informações de vida e placar de forma clara para os jogadores
     def draw_playing(self):
         players = players_state.get("players", {})
         bullets = players_state.get("bullets", [])
@@ -362,10 +377,12 @@ class SpaceDuelClient:
         pyxel.text(4, 9, f"P1: {score.get('1',0)}", pyxel.COLOR_WHITE)
         pyxel.text((SCREEN_WIDTH - 28) // 2 + 52, 9, f"P2: {score.get('2',0)}", pyxel.COLOR_WHITE)
 
+    # Desenha a tela de espera por jogadores, mostrando uma mensagem centralizada e piscante para indicar que o cliente está aguardando outro jogador se conectar, e instruções para sair do jogo
     def draw_waiting(self):
         pyxel.text((SCREEN_WIDTH - 68)//2, (SCREEN_HEIGHT - 6)//2, "WAITING PLAYER...", pyxel.frame_count % 16)
         pyxel.text((SCREEN_WIDTH - 32)//2, (SCREEN_HEIGHT - 6)//2 + 10, "Q - QUIT", pyxel.COLOR_WHITE)
-        
+    
+    # Desenha a contagem regressiva antes do início da partida, mostrando os números da contagem ou a mensagem "FIGHT!" de forma centralizada e piscante para indicar o início iminente da partida
     def draw_countdown(self):
         countdown = players_state.get("countdown", 0)
 
@@ -373,7 +390,8 @@ class SpaceDuelClient:
             pyxel.text((SCREEN_WIDTH - 4)//2, (SCREEN_HEIGHT - 6)//2, str(countdown), pyxel.frame_count % 16)
         else:
             pyxel.text((SCREEN_WIDTH - 24)//2, (SCREEN_HEIGHT - 6)//2, "FIGHT!", pyxel.frame_count % 16)
-            
+    
+    # Desenha a tela de fim de jogo, mostrando o vencedor, o placar final, o status de pronto para nova partida de cada jogador e instruções para reiniciar ou sair, com efeitos visuais para destacar o vencedor e os jogadores prontos
     def draw_game_over(self):
         winner = players_state.get("winner")
         ready = players_state.get("ready", {})

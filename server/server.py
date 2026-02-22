@@ -22,10 +22,11 @@ import random
 HOST = "0.0.0.0" # Aceita conexões de qualquer endereço
 PORT = 5000
 MAX_PLAYERS = 2
-MOVE_STEP = 2 #Pixels por movimento
 
-BULLET_SPEED = 4
-BULLET_SIZE = 2
+# Mecânicas do jogo
+MOVE_STEP = 2 #Pixels por movimento
+BULLET_SPEED = 4 
+BULLET_SIZE = 2 
 DAMAGE = 10
 SCREEN_WIDTH = 160
 SCREEN_HEIGHT = 120
@@ -53,6 +54,7 @@ game_state = {
 
 }
 
+# controle de cooldown de tiro por jogador 
 last_shot_time = {
     1: 0,
     2: 0
@@ -72,43 +74,47 @@ ready_players = {
 
 # Estado do servidor
 clients = {}  # player_id -> socket
-lock = threading.Lock()
+lock = threading.Lock() # para sincronizar acesso ao estado do jogo entre threads 
 
-def send_message(conn, message: dict):
+# Funções para comunicação e lógica do jogo
+def send_message(conn, message: dict): 
     """Envia uma mensagem JSON para o cliente pelo socket."""
     try:
-        data = json.dumps(message) + "\n"
-        conn.sendall(data.encode("utf-8"))
+        data = json.dumps(message) + "\n" # o \n é importante para o cliente saber onde termina a mensagem
+        conn.sendall(data.encode("utf-8")) # envia os dados codificados como bytes
     except Exception as e:
         print(f"[ERROR]: Falha ao enviar mensagem: {e}")
 
+# Função por manter a "ilusão" de sincronização do jogo entre os clientes, enviando o estado atualizado a cada 50ms
 def broadcast_state():
     """Envia o estado atual do jogo para todos os clientes"""
     message = {
         "type": MSG_STATE,
         "players": game_state["players"],
         "bullets": game_state["bullets"],
+        "bonus": game_state["bonus"],
         "score": score,
         "game_over": game_over,
         "winner": winner,
         "phase": game_phase,
         "countdown": countdown,
         "ready": ready_players,
-        "bonus": game_state["bonus"],
         "bonus_end_time": bonus_end_time
     }
 
     for conn in clients.values():
         send_message(conn, message)
 
+# Funções de lógica do jogo (gerenciamento de movimento, tiros, bônus, colisões, etc)
 def process_move(player_id, direction):
     """Atualiza a posição do jogador com base na direção."""
-    if game_over:
+
+    if game_over: # se o jogo já terminou, o servidor ignora qualquer pacote de movimento
         return
-    if game_phase != "PLAYING":
+    if game_phase != "PLAYING": # só permite movimento durante a partida ativa
         return
 
-    player = game_state["players"].get(player_id)
+    player = game_state["players"].get(player_id) # o servidor busca o dicionário de dados específico do jogador no game_state
     if not player:
         return
 
@@ -126,27 +132,30 @@ def process_move(player_id, direction):
         if player["x"] <= SCREEN_WIDTH - 11:
             player["x"] += MOVE_STEP
 
-def create_bullet(player_id):
+# Função para criar uma nova bala quando um jogador atira, respeitando o cooldown e o tipo de tiro (normal ou triplo)
+def create_bullet(player_id): # o servidor indentifica qual jogador enviou o comando de tiro 
     """Cria uma bala disparada por um jogador."""
     if game_over:
         return
     if game_phase != "PLAYING":
         return
     
-    now = time.time()
+    now = time.time() # servidor verifica o horário atual para comparar com o último tiro do jogador e garantir que o cooldown seja respeitado
 
     # Verifica cooldown
-    if now - last_shot_time[player_id] < SHOT_COOLDOWN:
+    if now - last_shot_time[player_id] < SHOT_COOLDOWN: # impede que o jogador dispare novamente antes de passar o tempo mínimo definido em SHOT_COOLDOWN
         return
     
-    last_shot_time[player_id] = now
+    last_shot_time[player_id] = now # atualiza o horário do último tiro para o jogador
 
-    player = game_state["players"].get(player_id)
+    # Lógica de disparo (Simples ou com Bonus)
+    player = game_state["players"].get(player_id)  # o servidor busca o dicionário de dados específico do jogador para verificar se ele tem o bônus de tiro triplo ativo
     if not player:
         return
 
-    if player.get("power", False):
-    # tiro triplo
+    if player.get("power", False): # se o jogador tiver o bônus de tiro triplo ativo, o servidor cria 3 balas com offsets verticais para simular um tiro em cone
+        
+        # tiro triplo
         offsets = [-4, 0, 4]
         for offset in offsets:
             bullet = {
@@ -156,7 +165,7 @@ def create_bullet(player_id):
                 "owner": player_id
             }
             game_state["bullets"].append(bullet)
-    else:
+    else: # cria apenas uma bala centralizada na posição da nave
         bullet = {
             "x": player["x"] + 3,
             "y": player["y"] + 3,
@@ -165,19 +174,14 @@ def create_bullet(player_id):
         }
         game_state["bullets"].append(bullet)
 
-def spawn_bonus():
-    game_state["bonus"] = {
-        "x": random.randint(20, SCREEN_WIDTH - 20),
-        "y": random.randint(20, SCREEN_HEIGHT - 20)
-    }
-
+# Função para atualizar a posição das balas, verificar colisões com jogadores e remover balas que saíram da tela ou colidiram
 def update_bullets():
     """Atualiza a Posição das balas e verifica colisões."""
-    bullets_to_remove = []
+    bullets_to_remove = [] # lista auxiliar para armazenar balas que precisam ser removidas após a atualização (se colidiram ou saíram da tela)
 
-    for bullet in game_state["bullets"]:
+    for bullet in game_state["bullets"]: 
 
-        bullet["x"] += bullet["dir"] * BULLET_SPEED
+        bullet["x"] += bullet["dir"] * BULLET_SPEED # atualiza a posição horizontal da bala com base na direção e velocidade
 
         # fora da tela 
         if bullet["x"] < 0 or bullet["x"] > SCREEN_WIDTH:
@@ -186,16 +190,16 @@ def update_bullets():
 
         # Verifica colisão com jogadores
         for pid, player in game_state["players"].items():
-            if pid == bullet["owner"]:
+            if pid == bullet["owner"]: # regra de segurança para impedir que o jogador seja atingido por sua própia bala
                 continue
             # colisão entre bala e jogador
-            if (
+            if ( 
                 bullet["x"] < player["x"] + 8 and
                 bullet["x"] > player["x"] and
                 bullet["y"] < player["y"] + 8 and
                 bullet["y"] + 2 > player["y"]
             ):
-                player["hp"] -= DAMAGE
+                player["hp"] -= DAMAGE # reduz a vida do jogador diretamente no game_state
                 player["hit_timer"] = 2  # frames de efeito vermelho
                 # se jogador morreu 
                 if player["hp"] <= 0:
@@ -207,12 +211,21 @@ def update_bullets():
         if player.get("hit_timer", 0) > 0:
             player["hit_timer"] -= 1
 
+    # remove balas que colidiram ou saíram da tela
     for b in bullets_to_remove:
         if b in game_state["bullets"]:
             game_state["bullets"].remove(b)
 
+# Função para gerenciar o surgimento de bônus no mapa, verificando o tempo desde o último bônus e a duração do bônus ativo, além de verificar colisões com jogadores para aplicar os efeitos dos bônus
+def spawn_bonus():
+    game_state["bonus"] = {
+        "x": random.randint(20, SCREEN_WIDTH - 20),
+        "y": random.randint(20, SCREEN_HEIGHT - 20)
+    }
+
+# Função para atualizar o estado dos bônus, gerenciar o tempo de surgimento e expiração, e aplicar os efeitos dos bônus aos jogadores que os coletarem
 def update_bonus():
-    global last_bonus_spawn, bonus_end_time
+    global last_bonus_spawn, bonus_end_time # variáveis globais para controlar o tempo de surgimento e expiração dos bônus
 
     # Só funciona durante partida ativa
     if game_phase != "PLAYING":
@@ -227,15 +240,16 @@ def update_bonus():
 
         # Espera 7 segundos desde o último evento
         if current_time - last_bonus_spawn >= BONUS_INTERVAL:
-            bonus_type = random.choice(["power", "health"])
+            bonus_type = random.choice(["power", "health"]) # servidor define aleatoriamente qual bonus irá aparecer
 
+            # gera posição aleatória para o bônus dentro da tela e armazena o tipo do bônus no game_state
             game_state["bonus"] = {
                 "x": random.randint(20, SCREEN_WIDTH - 20),
                 "y": random.randint(20, SCREEN_HEIGHT - 20),
                 "type": bonus_type
             }
 
-            bonus_end_time = current_time + BONUS_DURATION
+            bonus_end_time = current_time + BONUS_DURATION # define o tempo de expiração do bonus na tela
             last_bonus_spawn = current_time
 
     # -------------------------
@@ -244,7 +258,7 @@ def update_bonus():
     else:
         bonus = game_state["bonus"]
 
-        # Verifica tempo de expiração (4 segundos)
+        # Verifica tempo de expiração 
         if current_time >= bonus_end_time:
             game_state["bonus"] = None
             last_bonus_spawn = current_time
@@ -260,11 +274,13 @@ def update_bonus():
                 bonus["y"] > player["y"]
             ):
                 bonus_type = bonus.get("type")
-
+                
+                # Aplica efeito do bônus tiro triplo
                 if bonus_type == "power":
                     player["power"] = True
                     player["power_end"] = current_time + 5
-
+                
+                # Aplica efeito do bônus de vida
                 elif bonus_type == "health":
                     player["hp"] += 40  # +2 corações
                     if player["hp"] > 100:
@@ -275,23 +291,7 @@ def update_bonus():
                 bonus_end_time = None
                 break
 
-def game_loop():
-    """Loop principal do jogo, atualiza o estado e envia para os clientes."""
-    while True:
-        with lock:
-            update_bullets()
-            update_bonus()
-
-            current_time = time.time()
-
-            for player in game_state["players"].values():
-                if player.get("power", False):
-                    if current_time >= player.get("power_end", 0):
-                        player["power"] = False
-
-            broadcast_state()
-        time.sleep(0.05) # 20 FPS
-
+# Função para lidar com o encerramento da partida, definindo o vencedor, atualizando o placar e preparando o estado para uma possível nova partida
 def handle_game_over(winner_id):
     global game_over, winner
 
@@ -316,6 +316,7 @@ def handle_game_over(winner_id):
     # Log no servidor
     print(f"[GAME OVER] Jogador {winner_id} venceu!")
 
+# Thread para lidar com a comunicação de cada cliente, processando mensagens recebidas e atualizando o estado do jogo conforme as ações dos jogadores
 def handle_client(conn, addr, player_id):
     """Thread responsável por escutar mensagens de um cliente."""
 
@@ -331,21 +332,21 @@ def handle_client(conn, addr, player_id):
 
     try:
         while True:
-            data = conn.recv(1024)
+            data = conn.recv(1024) 
             if not data:
                 break
             buffer += data.decode("utf-8")
-            while "\n" in buffer:
+            while "\n" in buffer: # processa cada mensagem completa (terminada em \n) que chegar do cliente
                 line, buffer = buffer.split("\n", 1)
                 message = json.loads(line)
 
-                if message["type"] == MSG_MOVE:
+                if message["type"] == MSG_MOVE: # chama lógica de moviemnto 
                     with lock:
-                        process_move(player_id, message["direction"])
-                elif message["type"] == MSG_SHOOT:
+                        process_move(player_id, message["direction"]) 
+                elif message["type"] == MSG_SHOOT: # chama lógica de tiro
                     with lock:
                         create_bullet(player_id)
-                elif message["type"] == MSG_READY:
+                elif message["type"] == MSG_READY: # marca jogador como pronto para reiniciar a partida após um game over
                     with lock:
                         ready_players[player_id] = True
 
@@ -366,6 +367,7 @@ def handle_client(conn, addr, player_id):
                 reset_game()
         conn.close()
 
+# Funções para gerenciar o estado do jogo, como resetar posições, iniciar contagem regressiva para início da partida e resetar o estado para uma nova partida
 def get_free_player_id():
     """Retorna o menor ID de jogador disponível."""
     for pid in range(1, MAX_PLAYERS + 1):
@@ -373,6 +375,7 @@ def get_free_player_id():
             return pid
     return None
 
+# Função para iniciar a contagem regressiva antes do início da partida, gerenciando a transição entre as fases de espera e jogo ativo
 def start_countdown():
     global game_phase, countdown
 
@@ -400,6 +403,7 @@ def start_countdown():
     # Inicia a primeira chamada após 1 segundo
     threading.Timer(1.0, tick).start()
 
+# Função para resetar o estado do jogo, incluindo posições dos jogadores, vida, balas, bônus e placar, preparando para uma nova partida ou para o estado inicial de espera por jogadores
 def reset_game():
     global game_over, winner, game_phase, countdown
     global last_bonus_spawn
@@ -427,6 +431,7 @@ def reset_game():
     game_over = False
     winner = None
 
+# Função para resetar o estado dos jogadores e do jogo para o início de uma nova partida, mantendo o placar acumulado
 def reset_match():
     global game_over, winner, last_bonus_spawn, bonus_end_time
     last_bonus_spawn = time.time()
@@ -442,12 +447,32 @@ def reset_match():
     game_over = False
     winner = None
 
+# Função para resetar a posição e HP de um jogador específico, usada tanto no reset geral do jogo quanto no reset para nova partida
 def reset_player(player_id):
     """Reseta posição e HP do jogador."""
     if player_id == 1:
         game_state["players"][1] = {"x": (SCREEN_WIDTH - 8) // 2 - 60, "y": (SCREEN_HEIGHT - 8) // 2, "hp": 100}
     elif player_id == 2:
         game_state["players"][2] = {"x": (SCREEN_WIDTH - 8) // 2 + 60, "y": (SCREEN_HEIGHT - 8) // 2, "hp": 100}
+
+# Loop principal do jogo, responsável por atualizar o estado do jogo (movimento de balas, surgimento de bônus, duração dos efeitos) e enviar o estado atualizado para os clientes a cada 50ms
+def game_loop():
+    """Loop principal do jogo, atualiza o estado e envia para os clientes."""
+    while True:
+        with lock: # garante exclusão mútua 
+            update_bullets() # move os projéteis e checa colisões
+            update_bonus() # gerencia o ciclo de vida dos itens especiais
+
+            current_time = time.time()
+
+            for player in game_state["players"].values():
+                if player.get("power", False):
+                    if current_time >= player.get("power_end", 0): # garante que o efeito de bônus de tire expire após o tempo definido
+                        player["power"] = False
+
+            broadcast_state() # envia estado atualizado para os clientes
+        time.sleep(0.05) # 20 FPS
+
 
 def start_server():
     """Inicializa o servidor e aceita conexões de clientes."""
