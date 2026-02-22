@@ -20,7 +20,7 @@ import time
 
 # Configuração do Cliente
 
-SERVER_HOST = "192.168.1.14" # Endereço IP do servidor
+SERVER_HOST = "" # Endereço IP do servidor
 SERVER_PORT = 5000       # Porta do servidor
 
 SCREEN_WIDTH = 160
@@ -377,8 +377,16 @@ class SpaceDuelClient:
     def draw_game_over(self):
         winner = players_state.get("winner")
         ready = players_state.get("ready", {})
+        score = players_state.get("score", {})
 
-        pyxel.text((SCREEN_WIDTH - 52)//2, SCREEN_HEIGHT//3, f"PLAYER {winner} WINS", pyxel.frame_count % 16)
+        # posição base vertical
+        base_y = SCREEN_HEIGHT // 3
+
+        # ---- Título ----
+        pyxel.text((SCREEN_WIDTH - 52)//2,base_y, f"PLAYER {winner} WINS",pyxel.frame_count % 16)
+
+        # ---- Placar ----
+        pyxel.text((SCREEN_WIDTH - 60)//2, base_y + 20 ,f"P1: {score.get('1',0)}  x  p2: {score.get('2',0)}",pyxel.COLOR_WHITE)
 
         p1 = "READY" if ready.get("1") else "WAIT"
         p2 = "READY" if ready.get("2") else "WAIT"
@@ -386,11 +394,11 @@ class SpaceDuelClient:
         color1 = pyxel.frame_count % 16 if p1 == "READY" else pyxel.COLOR_WHITE
         color2 = pyxel.frame_count % 16 if p2 == "READY" else pyxel.COLOR_WHITE
 
-        pyxel.text((SCREEN_WIDTH - 36) // 2 - 25, 60, f"P1: {p1}", color1)
-        pyxel.text((SCREEN_WIDTH - 36) // 2 + 25, 60, f"P2: {p2}", color2)
+        pyxel.text((SCREEN_WIDTH - 36) // 2 - 25, base_y + 40, f"P1: {p1}", color1)
+        pyxel.text((SCREEN_WIDTH - 36) // 2 + 25, base_y + 40, f"P2: {p2}", color2)
 
-        pyxel.text((SCREEN_WIDTH - 72)//2, 50, "ENTER - PLAY AGAIN", pyxel.COLOR_WHITE)
-        pyxel.text((SCREEN_WIDTH - 32)//2, 70, "Q - QUIT", pyxel.COLOR_WHITE)
+        pyxel.text((SCREEN_WIDTH - 72)//2, base_y + 50, "ENTER - PLAY AGAIN", pyxel.COLOR_WHITE)
+        pyxel.text((SCREEN_WIDTH - 32)//2, base_y + 60, "Q - QUIT", pyxel.COLOR_WHITE)
 
 if __name__ == "__main__":
     SpaceDuelClient()
